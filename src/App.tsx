@@ -28,8 +28,27 @@ const tracks = [
 ]
 
 export default function App() {
-  const [sent, setSent] = useState(false)
-  const submit = (e: FormEvent) => { e.preventDefault(); setSent(true) }
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const email = String(new FormData(event.currentTarget).get('email') ?? '').trim()
+    const endpoint = import.meta.env.VITE_WAITLIST_ENDPOINT
+    if (!email || !endpoint) {
+      setStatus('error')
+      return
+    }
+    setStatus('sending')
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      setStatus(response.ok ? 'sent' : 'error')
+    } catch {
+      setStatus('error')
+    }
+  }
 
   return (
     <main>
@@ -124,7 +143,7 @@ export default function App() {
 
       <section className="signup" id="signup">
         <div className="wrap signup-inner"><div><p className="kicker">Coming soon</p><h2>Find your rhythm early.</h2><p>Join the email preview for calm product updates and first access when GlucoSync is ready.</p></div>
-          <form onSubmit={submit}>{sent ? <p className="success">You’re on the list. We’ll be in touch.</p> : <><label><span className="sr-only">Email address</span><input required type="email" placeholder="Email address"/></label><button type="submit">Join the preview <span>→</span></button><small>No noise. Just meaningful updates.</small></>}</form>
+          <form onSubmit={submit}>{status === 'sent' ? <p className="success">You’re on the list. We’ll be in touch.</p> : <><label><span className="sr-only">Email address</span><input required name="email" type="email" autoComplete="email" placeholder="Email address"/></label><button type="submit" disabled={status === 'sending'}>{status === 'sending' ? 'Joining…' : <>Join the preview <span>→</span></>}</button>{status === 'error' ? <small className="form-error" role="alert">We couldn’t add you just yet. Please try again soon.</small> : <small>No noise. Just meaningful updates.</small>}</>}</form>
         </div>
       </section>
 

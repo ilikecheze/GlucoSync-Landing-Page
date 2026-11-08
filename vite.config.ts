@@ -4,16 +4,17 @@ import tailwindcss from '@tailwindcss/vite'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import siteConfiguration from './.figma/make/site.json'
-
+const DEFAULT_TITLE = "GlucoSync"
+const DEFAULT_DESCRIPTION = "Explore GlucoSync, a wellness app that aligns curated music with live heart rate to support calmer rhythms during workouts and daily sessions."
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
+  const base = resolveBase()
 
   return {
-    base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    base,
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
@@ -21,7 +22,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
 react(),
       tailwindcss(),
-      figmaSiteConfiguration(siteConfiguration),
+      figmaSiteConfiguration(siteConfigurationFor(), base),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
@@ -76,8 +77,39 @@ type FigmaSiteConfiguration = {
   }
 }
 
+function resolveBase(): string {
+  const configured = process.env.FIGMA_PUBLIC_URL || process.env.BASE_PATH || "/"
+  if (configured === "/") return "/"
+  return `${configured.replace(/\/$/, "")}/`
+}
+
+function loadSiteConfiguration(): FigmaSiteConfiguration {
+  const configPath = path.resolve(__dirname, ".figma/make/site.json")
+  if (!fs.existsSync(configPath)) return {}
+  return JSON.parse(fs.readFileSync(configPath, "utf8")) as FigmaSiteConfiguration
+}
+
+/** GitHub Pages should be indexable even when the local Figma preview is not. */
+function siteConfigurationFor(): FigmaSiteConfiguration {
+  const config = loadSiteConfiguration()
+  const publishingToGitHubPages = Boolean(process.env.BASE_PATH) && !process.env.FIGMA_PUBLIC_URL
+  if (!publishingToGitHubPages || config.robots?.index !== false) return config
+  return { ...config, robots: { ...config.robots, index: true } }
+}
+
+function withBase(base: string, assetPath: string): string {
+  if (!assetPath || /^(https?:)?\/\//.test(assetPath) || assetPath.startsWith("data:")) return assetPath
+  const normalizedBase = base === "/" ? "/" : `${base.replace(/\/$/, "")}/`
+  return `${normalizedBase}${assetPath.replace(/^\//, "")}`
+}
+
+function publicFileExists(assetPath: string): boolean {
+  if (!assetPath || /^(https?:)?\/\//.test(assetPath)) return false
+  return fs.existsSync(path.resolve(__dirname, "public", assetPath.replace(/^\//, "")))
+}
+
 /** Applies /.figma/make/site.json to the generated document shell. */
-function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
+function figmaSiteConfiguration(config: FigmaSiteConfiguration, base: string): Plugin {
   function sanitizeHtmlValue(value: string | undefined): string {
     return value?.replace(/[^a-zA-Z0-9_-]/g, '') || ''
   }
@@ -88,11 +120,12 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
     return html.replace(`<!-- ${slotName} -->`, content)
   }
 
-  const title = config.title ?? "Figma Make App"
-  const description = config.description ?? ''
+  const title = config.title ?? DEFAULT_TITLE
+  const description = config.description ?? DEFAULT_DESCRIPTION
   // Imported HTML keeps its own favicon; new Makes default to the Make product icon.
-  const favicon = config.icons?.icon ?? '/favicon.svg'
-  const socialImage = config.openGraph?.image ?? ''
+  const faviconSource = config.icons?.icon ?? "/favicon.svg"
+  const favicon = publicFileExists(faviconSource) || /^(https?:)?\/\//.test(faviconSource) ? withBase(base, faviconSource) : ""
+  const socialImage = config.openGraph?.image ? withBase(base, config.openGraph.image) : ""
   const language = sanitizeHtmlValue(config.language) || 'en'
   const googleAnalyticsId = sanitizeHtmlValue(config.analytics?.googleAnalyticsId)
   const headStart = config.customScripts?.headStart ?? ''
